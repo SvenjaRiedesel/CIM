@@ -1,0 +1,162 @@
+// CIM Custom Command for Risø Sequence Editor
+// Written by Karsten Bracht Nielsen, LUMPHYS, DTU Physics, Technical University of Denmark
+// Made available through the Marie Skłodowska-Curie grant agreement (grant no. 101103587; RECREATE) awarded to Svenja Riedesel
+// Details can be found in the README file and in Riedesel et al. XXX
+
+// Only modify this part - Please adjust for your experiment
+
+const RampDuration = 11944;          // sec
+const StartTemperature = 300;      // C
+const EndTemperature = 25;        // C
+const BetaDutyCycle = 100;          // %
+const BetaPeriod = 11944;             // sec
+const HeatingPeriod = 43.43;          // sec
+
+
+// Do not modify the code below
+
+const Debug = false;
+
+// https://stackoverflow.com/questions/42919469/efficient-way-to-implement-priority-queue-in-javascript
+const MinHeap={
+  siftDown(h,i=0,v=h[i]){if(i<h.length){let k=v[0];while(1){let j=i*2+1;if(j+1<h.length&&h[j][0]>h[j+1][0])j++;if(j>=h.length||k<=h[j][0])break;h[i]=h[j];i=j;}h[i]=v}},
+  heapify(h){for(let i=h.length>>1;i--;)this.siftDown(h,i);return h},
+  pop(h){return this.exchange(h,h.pop())},
+  exchange(h,v){if(!h.length) return v;let w=h[0];this.siftDown(h,0,v);return w},
+  push(h,v){let k=v[0],i=h.length,j;while((j=(i-1)>>1)>=0&&k<h[j][0]){h[i]=h[j];i=j}h[i]=v;return h}
+};
+
+let queue = [];
+
+function Schedule(task, ms) {
+  MinHeap.push(queue, [ms, task]);
+}
+
+function ScheduleFirst(task, delay) {
+  task.start = ElapsedMs() + delay;
+  task.cycle = 0;
+  //MinHeap.push(queue, [task.start, task]);
+  Schedule(task, task.start);
+}
+
+function ScheduleNext(task) {
+  task.cycle++;
+  let nextExeTime = task.start + task.period * task.cycle;
+  if (task.duration + task.start >= nextExeTime) {
+    //MinHeap.push(queue, [nextExeTime, task]);
+    Schedule(task, nextExeTime);
+  }
+}
+
+function RunTasks() {
+  let pausing = false;
+  let [nextExeTime, task] = MinHeap.pop(queue);
+  while (true) {
+    while (nextExeTime <= ElapsedMs()) {
+      if (Debug) Log("" + nextExeTime + " execute " + task.name + "\n");
+      task.execute(nextExeTime);
+      if (queue.length > 0) {
+        [nextExeTime, task] = MinHeap.pop(queue);
+        pausing = false;
+      } else {
+        return;
+      }
+    }
+    if (!pausing) {
+      Log("Pausing...\n");
+      pausing = true;
+    }
+    WaitMs(1);
+  }
+}
+
+const BetaOffTask = {
+  execute(time) {
+    // if (Debug) Log("" + time + " BetaOffTask.execute()\n");
+    if (!Debug) LowLevelCommand("BC");
+  },
+  name: "BetaOffTask",
+};
+
+const BetaOnTask = {
+  init() {
+    // Log("BetaTask.init(): " + ElapsedMs() + "\n");
+    ScheduleFirst(this, 0);
+  },
+  execute(time) {
+    // if (Debug) Log("" + time + " BetaTask.execute()\n");
+    if (!Debug) LowLevelCommand("BI");
+    Schedule(BetaOffTask, time + this.period * BetaDutyCycle / 100);
+    ScheduleNext(this);
+  },
+  //start: 0,
+  //cycle: 0,
+  name: "BetaOnTask",
+  period: BetaPeriod * 1000,
+  duration: RampDuration * 1000 - 1,
+};
+
+const HeatingTask = {
+  init() {
+    // Log("HeatingTask.init(): " + ElapsedMs() + "\n");
+    ScheduleFirst(this, 0);
+  },
+  execute(time) {
+    let slope = (EndTemperature - StartTemperature) / this.duration;
+    time = time - this.start; 
+    temperature = Math.round(StartTemperature + slope * time);
+    if (Debug) Log("Heating set point: " + temperature + " C\n");
+    if (!Debug) SetTemperature(temperature, 20);
+    // Note: WaitToComplete(); is not needed here.
+    ScheduleNext(this);
+  },
+  //start: 0,
+  //cycle: 0,
+  name: "HeatingTask",
+  period: HeatingPeriod * 1000,
+  duration: RampDuration * 1000,
+};
+
+const KeepAliveTask = {
+  init() {
+    // Log("KeepAliveTask.init(): " + ElapsedMs() + "\n");
+    ScheduleFirst(this, 0);
+  },
+  execute(time) {
+    // if (Debug) Log("" + time +" KeepAliveTask.execute()\n");
+    if (!Debug) {
+      let hotplateTemperature = LowLevelCommand("RT 1", 100);
+      Log("Hotplate temperature: " + hotplateTemperature + "\n");
+    }    
+    ScheduleNext(this);
+  },
+  //start: 0,
+  //cycle: 0,
+  name: "KeepAliveTask",
+  period: 20 * 1000,
+  duration: RampDuration * 1000,
+};
+
+
+SetBetaSample(Position);
+WaitToComplete();
+LowLevelCommand("OR ON 2");  // Switch to second hotplate
+Pause(1);
+CheckThermalFailure();
+WaitForHeaterCooled();
+LiftUp();
+WaitToComplete();
+
+SetTemperature(StartTemperature, 20);
+WaitToComplete();
+
+HeatingTask.init();
+BetaOnTask.init();
+KeepAliveTask.init();
+RunTasks();
+  
+SetTemperature(0);
+LiftDown();
+WaitToComplete();
+LowLevelCommand("OR OFF 2");  // Switch to main hotplate
+
