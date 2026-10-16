@@ -1,7 +1,7 @@
 # CIM
 Java script code for Risø Sequence Editor Custom Command to run Cooling-irradiation Modulation (CIM) experiments
 
-To enable cooling-irradiation modulation on a Risø reader, a custom command needs to be used in Sequence Editor. The custom command can be created using Java script. The Java script written by Karsten Bracht Nielsen, DTU, to facilitate CIM, is made available on Github, via Zenodo (add Zenodo Doi) or by following this link: https://github.com/feldsparlover/CIM
+To enable cooling-irradiation modulation on a Risø reader, a custom command needs to be used in Sequence Editor. The custom command can be created using Java script. The Java script written by Karsten Bracht Nielsen, DTU, to facilitate CIM, is made available on Github, via Zenodo (add Zenodo Doi) or by following this link: https://github.com/SvenjaRiedesel/CIM
 
 If one would like to use CIM, the first part of the code needs to be adjusted for the respective measurement. There are six variables needed to be optimised:
 
